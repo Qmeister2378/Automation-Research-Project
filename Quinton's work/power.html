@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Automation Control Panel</title>
+  <style>
+    body { 
+      font-family: Arial, 
+      sans-serif; 
+      margin: 0; 
+      background: #f5f5f5; 
+    }
+    header { 
+      background: #5d859c; 
+      color: white; 
+      padding: 10px 20px; }
+    main { 
+      max-width: 1100px; 
+      margin: 20px auto; 
+      background: white; 
+      padding: 20px; 
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1); 
+    }
+    .section { 
+      margin-bottom: 20px; 
+      border-bottom: 1px solid #ddd; 
+      padding-bottom: 15px; 
+    }
+    .grid { 
+      display: flex; 
+      flex-wrap: wrap; 
+      gap: 15px; 
+    }
+    .field { 
+      flex: 1 1 160px; 
+      min-width: 160px; 
+    }
+    label { 
+      display: block; 
+      font-size: 0.9rem; 
+      margin-bottom: 4px; 
+    }
+    input { 
+      width: 100%; 
+      padding: 6px 8px; 
+      box-sizing: border-box; 
+    }
+    button { 
+      padding: 8px 14px; 
+      margin-right: 8px; 
+      border: none; 
+      cursor: pointer; 
+      border-radius: 3px; 
+    }
+    .btn-primary { 
+      background: #007bff; 
+      color: white; 
+    }
+    .btn-secondary { 
+      background: #0e83e9; 
+      color: white; 
+    }
+    .btn-danger { 
+      background: #dc3545; 
+      color: white; 
+    }
+    .status-ok { 
+      color: #198754; 
+      font-weight: bold; 
+    }
+    .status-bad { 
+      color: #dc3545; 
+      font-weight: bold; 
+    }
+    #log { 
+      width: 100%; 
+      height: 130px; 
+      resize: vertical; 
+      font-family: monospace; 
+      margin-top: 5px; 
+    }
+    table { 
+      width: 100%; 
+      border-collapse: collapse; 
+      font-size: 0.85rem; 
+    }
+    th, td { 
+      border: 1px solid #ddd; 
+      padding: 5px 6px; 
+      text-align: right; 
+    }
+    th { 
+      background: #f0f0f0; 
+    }
+  </style>
+</head>
+<body>
+<header><h1>Automation Control Panel</h1></header>
+
+<main>
+  <section class="section">
+    <h2>Connection</h2>
+    <p>Instrument status: <span id="connection-status" class="status-bad">Disconnected</span></p>
+    <button class="btn-secondary" id="btn-connect">Connect</button>
+    <button class="btn-secondary" id="btn-disconnect">Disconnect</button>
+  </section>
+
+  <section class="section">
+    <h2>Manual Instrument Values</h2>
+    <div class="grid">
+      <div class="field">
+        <label for="voltage">Power Supply Voltage (V)</label>
+        <input type="number" id="voltage" step="0.01" value="5.0">
+      </div>
+      <div class="field">
+        <label for="resistance">Electronic Load Resistance (Ω)</label>
+        <input type="number" id="resistance" step="0.1" value="10">
+      </div>
+      <div class="field">
+        <label for="frequency">Function Generator Frequency (Hz)</label>
+        <input type="number" id="frequency" step="1" value="100000">
+      </div>
+      <div class="field">
+        <label for="amplitude">Function Generator Amplitude (V)</label>
+        <input type="number" id="amplitude" step="0.01" value="2.0">
+      </div>
+      <div class="field">
+        <label for="offset">Function Generator Offset (V)</label>
+        <input type="number" id="offset" step="0.01" value="0.0">
+      </div>
+    </div>
+    <div style="margin-top: 12px;">
+      <button class="btn-primary" id="btn-start">Set Values and Measure</button>
+      <button class="btn-danger" id="btn-stop">Stop Outputs</button>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>Measurements</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Set V</th>
+          <th>Set R</th>
+          <th>Set F (kHz)</th>
+          <th>PS V</th>
+          <th>PS I</th>
+          <th>Load V</th>
+          <th>Load I</th>
+          <th>Load P</th>
+          <th>Scope F (kHz)</th>
+          <th>Scope Vpp</th>
+          <th>Scope Vrms</th>
+          <th>Mean</th>
+          <th>Max</th>
+          <th>Min</th>
+        </tr>
+      </thead>
+      <tbody id="data-body"></tbody>
+    </table>
+  </section>
+
+  <section class="section">
+    <h2>Output</h2>
+    <button class="btn-primary" id="btn-download-csv">Download CSV</button>
+    <label for="log">Log</label>
+    <textarea id="log" readonly></textarea>
+  </section>
+</main>
+
+<script>
+const dataBody = document.getElementById("data-body");
+const logArea = document.getElementById("log");
+const statusText = document.getElementById("connection-status");
+let allRows = [];
+
+function log(msg) {
+  logArea.value += msg + "\n";
+  logArea.scrollTop = logArea.scrollHeight;
+}
+
+function setStatus(connected) {
+  statusText.textContent = connected ? "Connected" : "Disconnected";
+  statusText.className = connected ? "status-ok" : "status-bad";
+}
+
+function readNumber(id) {
+  const value = Number(document.getElementById(id).value);
+  if (Number.isNaN(value)) throw new Error(id + " must be a number");
+  return value;
+}
+
+function fmt(value, digits = 3) {
+  return value === null || value === undefined ? "N/A" : Number(value).toFixed(digits);
+}
+
+function addRows(rows) {
+  rows.forEach(row => allRows.push(row));
+  dataBody.innerHTML = "";
+
+  allRows.forEach((r, i) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${i + 1}</td>
+      <td>${fmt(r.set_voltage_v)}</td>
+      <td>${fmt(r.set_resistance_ohm)}</td>
+      <td>${fmt(r.set_frequency_hz / 1000, 2)}</td>
+      <td>${fmt(r.ps_voltage_v)}</td>
+      <td>${fmt(r.ps_current_a)}</td>
+      <td>${fmt(r.load_voltage_v)}</td>
+      <td>${fmt(r.load_current_a)}</td>
+      <td>${fmt(r.load_power_w)}</td>
+      <td>${r.scope_frequency_hz ? fmt(r.scope_frequency_hz / 1000, 2) : "N/A"}</td>
+      <td>${fmt(r.scope_vpp_v)}</td>
+      <td>${fmt(r.scope_vrms_v)}</td>
+      <td>${fmt(r.scope_vmean_v)}</td>
+      <td>${fmt(r.scope_vmax_v)}</td>
+      <td>${fmt(r.scope_vmin_v)}</td>
+    `;
+    dataBody.appendChild(tr);
+  });
+}
+
+document.getElementById("btn-connect").onclick = async () => {
+  log("Connecting to instruments...");
+  const res = await fetch("/api/connect", { method: "POST" });
+  const data = await res.json();
+  log(data.message);
+  setStatus(data.status === "ok");
+};
+
+document.getElementById("btn-disconnect").onclick = async () => {
+  const res = await fetch("/api/disconnect", { method: "POST" });
+  const data = await res.json();
+  log(data.message);
+  setStatus(false);
+};
+
+document.getElementById("btn-start").onclick = async () => {
+  try {
+    const payload = {
+      voltage: readNumber("voltage"),
+      resistance: readNumber("resistance"),
+      frequency: readNumber("frequency"),
+      amplitude: readNumber("amplitude"),
+      offset: readNumber("offset")
+    };
+
+    log(`Sending values: V=${payload.voltage}, R=${payload.resistance}, F=${payload.frequency}, Amp=${payload.amplitude}, Offset=${payload.offset}`);
+
+    const res = await fetch("/api/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await res.json();
+
+    if (data.status !== "ok") {
+      log("Error: " + data.message);
+      return;
+    }
+
+    setStatus(true);
+    log(data.message);
+    addRows(data.data);
+  } catch (err) {
+    log("Error: " + err.message);
+  }
+};
+
+document.getElementById("btn-stop").onclick = async () => {
+  const res = await fetch("/api/stop", { method: "POST" });
+  const data = await res.json();
+  log(data.message);
+};
+
+document.getElementById("btn-download-csv").onclick = () => {
+  if (allRows.length === 0) {
+    log("No measurements to download yet.");
+    return;
+  }
+
+  const headers = Object.keys(allRows[0]);
+  const csv = [headers.join(",")].concat(
+    allRows.map(row => headers.map(h => row[h] ?? "").join(","))
+  ).join("\n");
+
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "manual_measurements.csv";
+  a.click();
+  URL.revokeObjectURL(url);
+};
+</script>
+</body>
+</html>
